@@ -1,0 +1,31 @@
+name: momento
+description: "A diary application to keep your secrets safe and secure."
+publish_to: 'none' # Remove this line if you wish to publish to pub.dev
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.5.3 # Keeping your specified SDK version
+
+dependencies:
+  flutter:
+    sdk: flutter
+  image_picker: ^1.1.2
+  intl: ^0.18.0
+  uuid: ^4.3.0 # Keeping this, assuming potential future use or specific client-side ID generation
+  supabase_flutter: ^2.5.2
+  google_fonts: ^6.2.1
+  animated_background: ^2.0.0
+  cupertino_icons: ^1.0.6
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
+  fonts:
+    - family: Rowdies
+      fonts:
+        - asset: fonts\Rowdies\Rowdies-Regular.ttf
