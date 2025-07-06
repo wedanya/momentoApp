@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:momento/screens/add_new_entry.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 // Import your AuthScreen (login page)
@@ -8,7 +9,7 @@ import 'package:momento/screens/login.dart'; // Assuming this is where AuthScree
 // IMPORTANT: Adjust this path and filename if your DiaryListScreen is in a different file.
 // For example, if it's in a file called 'diary_list.dart', the import would be:
 // import 'package:momento/screens/diary_list.dart';
-import 'package:momento/screens/list_diary.dart'; // Assuming DiaryListScreen is in list_diary.dart
+// Assuming DiaryListScreen is in list_diary.dart
 
 // No need for GoogleFonts here, as it's typically used in the widget it modifies.
 // But you can import it if you plan to use it for widgets within this file.
@@ -42,7 +43,7 @@ class Wrapper extends StatelessWidget {
 
         if (session != null) {
           // User is authenticated, show the main application screen
-          return const DiaryListScreen();
+          return const AddEntryScreen();
         } else {
           // User is not authenticated, show the login/registration screen
           return const AuthScreen();

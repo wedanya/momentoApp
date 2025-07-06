@@ -15,7 +15,6 @@ dependencies:
   uuid: ^4.3.0 # Keeping this, assuming potential future use or specific client-side ID generation
   supabase_flutter: ^2.5.2
   google_fonts: ^6.2.1
-  animated_background: ^2.0.0
   cupertino_icons: ^1.0.6
 
 dev_dependencies:

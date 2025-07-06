@@ -1,155 +1,291 @@
+// Ensure these imports are at the very top of your list_diary.dart file
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-// You might also want to import GoogleFonts here if you use them in this screen
-// import 'package:google_fonts/google_fonts.dart';
+import 'package:google_fonts/google_fonts.dart';
+// Make sure this path is correct
 
-// Import your LiquidBackground if you want it on this screen too
-import 'package:momento/widgets/liquid_background.dart';
+import 'dart:io'; // Required for File
+import 'package:image_picker/image_picker.dart'; // Required for ImagePicker
 
-// --- Placeholder Widgets for Navigation Tabs ---
-// In a real app, these would be separate, more complex screens/widgets.
-class DiaryContentPage extends StatelessWidget {
-  const DiaryContentPage({super.key});
+// ... (Your DiaryContentPage and SettingsPage should be above this)
 
-  @override
-  Widget build(BuildContext context) {
-    return const Center(
-      child: Text(
-        'Your Diary Entries Here!',
-        style: TextStyle(fontSize: 24, color: Colors.white),
-      ),
-    );
-  }
-}
-
-class AddEntryPage extends StatelessWidget {
+// --- START OF COMPLETE UPDATED AddEntryPage CLASS ---
+class AddEntryPage extends StatefulWidget {
   const AddEntryPage({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    return const Center(
-      child: Text(
-        'Add New Diary Entry Form',
-        style: TextStyle(fontSize: 24, color: Colors.white),
-      ),
-    );
-  }
+  State<AddEntryPage> createState() => _AddEntryPageState();
 }
 
-class SettingsPage extends StatelessWidget {
-  const SettingsPage({super.key});
+class _AddEntryPageState extends State<AddEntryPage> {
+  // --- All State Variables Declared Here ---
+  final _formKey = GlobalKey<FormState>();
+  final TextEditingController _contentController = TextEditingController();
+  bool _isLoading = false;
+  File? _selectedImage; // <--- This is the variable causing the error if misplaced
+  final ImagePicker _picker = ImagePicker(); // ImagePicker instance
 
   @override
-  Widget build(BuildContext context) {
-    return const Center(
-      child: Text(
-        'App Settings and Options',
-        style: TextStyle(fontSize: 24, color: Colors.white),
-      ),
+  void dispose() {
+    _contentController.dispose();
+    super.dispose();
+  }
+
+  // --- Image Picking Methods ---
+  Future<void> _pickImage() async {
+    showModalBottomSheet(
+      context: context,
+      builder: (BuildContext context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              ListTile(
+                leading: const Icon(Icons.photo_library),
+                title: const Text('Pick from Gallery'),
+                onTap: () {
+                  Navigator.pop(context); // Close the bottom sheet
+                  _getImage(ImageSource.gallery);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.camera_alt),
+                title: const Text('Take a Photo'),
+                onTap: () {
+                  Navigator.pop(context); // Close the bottom sheet
+                  _getImage(ImageSource.camera);
+                },
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
-}
-// --- End Placeholder Widgets ---
 
-
-class DiaryListScreen extends StatefulWidget {
-  const DiaryListScreen({super.key});
-
-  @override
-  State<DiaryListScreen> createState() => _DiaryListScreenState();
-}
-
-class _DiaryListScreenState extends State<DiaryListScreen> {
-  // Current selected index for the bottom navigation bar
-  int _selectedIndex = 0;
-
-  // List of widgets (pages) to display for each tab
-  // You would replace these placeholder widgets with your actual screens.
-  static const List<Widget> _widgetOptions = <Widget>[
-    DiaryContentPage(), // Your main diary list content
-    AddEntryPage(),     // A page to add new entries
-    SettingsPage(),     // A settings page
-  ];
-
-  // Function to handle tab taps
-  void _onItemTapped(int index) {
-    setState(() {
-      _selectedIndex = index;
-    });
-  }
-
-  // Function to handle logout
-  Future<void> _signOut() async {
+  Future<void> _getImage(ImageSource source) async {
     try {
-      await Supabase.instance.client.auth.signOut();
-      // Supabase's onAuthStateChange stream in Wrapper will handle navigation
-      // back to AuthScreen automatically after sign out.
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Logged out successfully!')),
-        );
-      }
-    } on AuthException catch (e) {
-      debugPrint('Logout Error: ${e.message}');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Logout failed: ${e.message}')),
-        );
+      final XFile? pickedFile = await _picker.pickImage(source: source);
+      if (pickedFile != null) {
+        setState(() {
+          _selectedImage = File(pickedFile.path);
+        });
       }
     } catch (e) {
-      debugPrint('General Logout Error: $e');
+      debugPrint("Error picking image: $e");
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('An unexpected error occurred during logout.')),
+          SnackBar(content: Text('Failed to pick image: ${e.toString()}')),
         );
       }
     }
   }
 
+  // --- Image Upload Method ---
+  Future<String?> _uploadImage() async {
+    if (_selectedImage == null) {
+      return null; // No image selected
+    }
+
+    final String userId = Supabase.instance.client.auth.currentUser!.id;
+    final String fileName = '$userId/${DateTime.now().microsecondsSinceEpoch}.png'; // Unique file path
+
+    try {
+      // Ensure 'diary-images' is your correct Supabase Storage bucket name
+      final String publicUrl = await Supabase.instance.client.storage
+          .from('diary-images')
+          .upload(fileName, _selectedImage!,
+              fileOptions: const FileOptions(
+                cacheControl: '3600', // Cache for 1 hour
+                upsert: false, // Don't overwrite if file exists
+              ));
+      return publicUrl;
+    } catch (e) {
+      debugPrint('Error uploading image: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to upload image: ${e.toString()}')),
+        );
+      }
+      return null; // Return null on error
+    }
+  }
+
+  // --- Add Diary Entry Method ---
+  Future<void> _addDiaryEntry() async {
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    final User? currentUser = Supabase.instance.client.auth.currentUser;
+
+    if (currentUser == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('You must be logged in to add an entry.')),
+        );
+      }
+      setState(() { _isLoading = false; });
+      return;
+    }
+
+    String? imageUrl;
+    if (_selectedImage != null) {
+      imageUrl = await _uploadImage(); // Upload image first
+      if (imageUrl == null) {
+        setState(() { _isLoading = false; });
+        return; // Stop if image upload failed
+      }
+    }
+
+    try {
+      // Ensure 'new_diary' is your correct Supabase database table name
+      await Supabase.instance.client.from('new_diary').insert({
+        'content': _contentController.text.trim(),
+        'user_id': currentUser.id,
+        'image_url': imageUrl, // Include the image URL here
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Diary entry added successfully!')),
+        );
+        _contentController.clear();
+        setState(() {
+          _selectedImage = null; // Clear selected image after successful submission
+        });
+      }
+    } catch (e) {
+      debugPrint('Error adding diary entry: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to add entry: ${e.toString()}')),
+        );
+      }
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  // --- Build Method for UI ---
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      extendBodyBehindAppBar: true, // Allow background to go under app bar
-      appBar: AppBar(
-        title: const Text('Momento Diary', style: TextStyle(color: Colors.white)),
-        backgroundColor: Colors.transparent, // Make app bar transparent
-        elevation: 0, // Remove shadow
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout, color: Colors.white),
-            onPressed: _signOut,
-            tooltip: 'Logout',
-          ),
-        ],
-      ),
-      // Wrap the body content with LiquidBackground if you want the animation here too
-      body: LiquidBackground( // Apply the liquid background
-        child: Center(
-          child: _widgetOptions.elementAt(_selectedIndex), // Display the selected tab's content
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20.0),
+      child: Form(
+        key: _formKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            Text(
+              'Add New Diary Entry',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.roboto(
+                fontSize: 28,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+            ),
+            const SizedBox(height: 30),
+            TextFormField(
+              controller: _contentController,
+              maxLines: 8,
+              minLines: 3,
+              decoration: InputDecoration(
+                labelText: 'Your thoughts...',
+                labelStyle: GoogleFonts.roboto(color: Colors.white70),
+                alignLabelWithHint: true,
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: const BorderSide(color: Colors.white54),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: const BorderSide(color: Colors.white),
+                ),
+                // ignore: deprecated_member_use
+                fillColor: Colors.white.withOpacity(0.1),
+                filled: true,
+              ),
+              style: GoogleFonts.roboto(color: Colors.white, fontSize: 16),
+              validator: (value) {
+                if (value == null || value.trim().isEmpty) {
+                  return 'Entry cannot be empty.';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: 20),
+
+            // --- Image Picking Button ---
+            ElevatedButton.icon(
+              icon: const Icon(Icons.image, color: Colors.white),
+              label: Text(
+                _selectedImage == null ? 'Pick Image' : 'Change Image',
+                style: GoogleFonts.roboto(fontSize: 16, color: Colors.white),
+              ),
+              onPressed: _pickImage, // Calls the method to show bottom sheet
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 15),
+                // ignore: deprecated_member_use
+                backgroundColor: Colors.white.withOpacity(0.2),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  side: const BorderSide(color: Colors.white70),
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+
+            // --- Image Preview ---
+            if (_selectedImage != null)
+              Container(
+                margin: const EdgeInsets.only(bottom: 20),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.white54),
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: Image.file(
+                    _selectedImage!,
+                    height: 200,
+                    fit: BoxFit.cover,
+                  ),
+                ),
+              ),
+
+            _isLoading
+                ? const Center(child: CircularProgressIndicator(color: Colors.white))
+                : ElevatedButton(
+                    onPressed: _addDiaryEntry,
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 15),
+                      // ignore: deprecated_member_use
+                      backgroundColor: Colors.white.withOpacity(0.3),
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        side: const BorderSide(color: Colors.white70),
+                      ),
+                      textStyle: GoogleFonts.roboto(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    child: const Text('Save Entry'),
+                  ),
+          ],
         ),
-      ),
-      bottomNavigationBar: BottomNavigationBar(
-        items: const <BottomNavigationBarItem>[
-          BottomNavigationBarItem(
-            icon: Icon(Icons.book),
-            label: 'Diary',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.add_box), // Or Icons.add_circle, Icons.create
-            label: 'Add',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.settings),
-            label: 'Settings',
-          ),
-        ],
-        currentIndex: _selectedIndex, // The currently selected tab
-        selectedItemColor: Colors.blueAccent, // Color for the selected icon/label
-        unselectedItemColor: Colors.grey,     // Color for unselected icons/labels
-        onTap: _onItemTapped, // Callback when a tab is tapped
-        backgroundColor: Colors.black.withOpacity(0.5), // Transparent background for navigation bar
-        type: BottomNavigationBarType.fixed, // Use fixed type for more than 3 items
       ),
     );
   }
 }
+// --- END OF COMPLETE UPDATED AddEntryPage CLASS ---

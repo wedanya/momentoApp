@@ -10,8 +10,8 @@ void main() async {
   // Initialize Supabase. Replace with your actual project URL and Anon Key.
   // DO NOT HARDCODE production keys in a real app, use environment variables.
   await Supabase.initialize(
-    url: 'YOUR_SUPABASE_URL', // <<< Replace with your Supabase URL
-    anonKey: 'YOUR_SUPABASE_ANON_KEY', // <<< Replace with your Supabase Anon Key
+    url: 'https://hcpkoadllzdwsfovivkz.supabase.co', // <<< Replace with your Supabase URL
+    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhjcGtvYWRsbHpkd3Nmb3Zpdmt6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTE2OTUwNTksImV4cCI6MjA2NzI3MTA1OX0.3HJO6J_Qew2i4FeBdRYpDnVAykx1vD0x3JUQnzhSxa4', // <<< Replace with your Supabase Anon Key
   );
 
   runApp(const MyApp());
@@ -23,7 +23,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Momento Diary',
+      title: 'momento',
       theme: ThemeData(
         primarySwatch: Colors.blue,
         // Optional: Apply GoogleFonts as a default for the entire app's text theme

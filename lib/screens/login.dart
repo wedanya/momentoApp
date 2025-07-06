@@ -99,8 +99,7 @@ class _AuthScreenState extends State<AuthScreen> {
                   Text( // Removed 'const' because GoogleFonts.xxx() is not a const constructor
                     'Momento',
                     textAlign: TextAlign.center,
-                    style: GoogleFonts.specialElite( // You can pick any font from Google Fonts!
-                      // For a more standard look, use GoogleFonts.roboto(
+                    style: GoogleFonts.rowdies( // <<< CHANGED TO GoogleFonts.rowdies
                       fontSize: 48,
                       fontWeight: FontWeight.bold,
                       color: Colors.white,
@@ -176,16 +175,23 @@ class _AuthScreenState extends State<AuthScreen> {
                   ),
                   const SizedBox(height: 20),
 
-                  // --- Error Message Display ---
-                  if (_errorMessage != null)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 10.0),
-                      child: Text(
-                        _errorMessage!,
-                        style: GoogleFonts.roboto(color: Colors.redAccent, fontSize: 14),
-                        textAlign: TextAlign.center,
+                  // ... (Your existing code in lib/screens/login.dart)
+
+                // --- Error Message Display ---
+                if (_errorMessage != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 10.0),
+                    child: Text(
+                      _errorMessage!,
+                      // CORRECTED LINE BELOW:
+                      style: GoogleFonts.roboto(
+                        color: Colors.orangeAccent, // This is a NAMED argument
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
                       ),
+                      textAlign: TextAlign.center,
                     ),
+                  ),
 
                   // --- Submit Button (Login/Register) ---
                   ElevatedButton(

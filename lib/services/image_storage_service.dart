@@ -1,36 +1,50 @@
 import 'dart:io';
+// ignore: unnecessary_import
+import 'dart:typed_data'; // Add this import for Uint8List
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart'; // For debugPrint
 
 class ImageStorageService {
   final SupabaseClient _supabase = Supabase.instance.client;
-  final String _bucketName = 'diary_images'; // Define your storage bucket name
+  final String _bucketName = 'images'; // Define your storage bucket name
 
-  // Uploads an image and returns its public URL
+  // Method for mobile platforms (takes File)
   Future<String> uploadDiaryImage(File imageFile, String userId) async {
-    // Create a unique path for the image, e.g., 'diary_images/user_id/timestamp-filename.ext'
-    final String filePath = '$userId/${DateTime.now().millisecondsSinceEpoch}-${imageFile.path.split('/').last}';
-
     try {
-      // Upload the file to the specified bucket and path
-      await _supabase.storage.from(_bucketName).upload(
-        filePath,
-        imageFile,
-        fileOptions: const FileOptions(
-          cacheControl: '3600', // Cache for 1 hour
-          upsert: false, // Do not overwrite if file exists
-        ),
-      );
+      final String fileName = '$userId/${DateTime.now().microsecondsSinceEpoch}.png';
+      await _supabase.storage
+          .from(_bucketName)
+          .upload(fileName, imageFile, fileOptions: const FileOptions(cacheControl: '3600', upsert: false));
 
-      // Get the public URL of the uploaded file
-      final String publicUrl = _supabase.storage.from(_bucketName).getPublicUrl(filePath);
-      debugPrint('Uploaded image to Supabase: $publicUrl');
+      final String publicUrl = _supabase.storage.from(_bucketName).getPublicUrl(fileName);
       return publicUrl;
     } catch (e) {
-      debugPrint('Error uploading image to Supabase: $e');
-      rethrow;
+      throw Exception('Failed to upload image from File: $e');
     }
   }
+
+  // NEW METHOD for web platforms (takes Uint8List)
+  Future<String> uploadDiaryImageBytes(Uint8List imageBytes, String userId) async {
+    try {
+      final String fileName = '$userId/${DateTime.now().microsecondsSinceEpoch}.png';
+      await _supabase.storage
+          .from(_bucketName)
+          .uploadBinary( // Use uploadBinary for bytes
+            fileName,
+            imageBytes,
+            fileOptions: const FileOptions(
+              cacheControl: '3600',
+              upsert: false,
+              contentType: 'image/png', // Important: specify content type for binary uploads
+            ),
+          );
+
+      final String publicUrl = _supabase.storage.from(_bucketName).getPublicUrl(fileName);
+      return publicUrl;
+    } catch (e) {
+      throw Exception('Failed to upload image from Bytes: $e');
+    }
+  } // <--- This closing brace was missing!
 
   // Deletes an image from storage using its URL
   Future<void> deleteImageByUrl(String imageUrl) async {

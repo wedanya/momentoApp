@@ -1,7 +1,7 @@
 // lib/models/diary_entry.dart
 class DiaryEntry {
   final String? id; // Changed from int? to String? for Supabase UUIDs
-  final String title;
+  final String? title;
   final String content;
   final String date;
   final String? imageUrl; // Correct: This is the property name in the class
