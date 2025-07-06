@@ -97,7 +97,7 @@ class _AuthScreenState extends State<AuthScreen> {
                 children: <Widget>[
                   // --- "Momento" Text Title with Google Fonts ---
                   Text( // Removed 'const' because GoogleFonts.xxx() is not a const constructor
-                    'Momento',
+                    'momento',
                     textAlign: TextAlign.center,
                     style: GoogleFonts.rowdies( // <<< CHANGED TO GoogleFonts.rowdies
                       fontSize: 48,

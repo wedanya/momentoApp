@@ -1,291 +1,389 @@
-// Ensure these imports are at the very top of your list_diary.dart file
+// lib/screens/list_diary.dart
+
 import 'package:flutter/material.dart';
+import 'package:momento/screens/diary_entry_details_page.dart';
+import 'package:momento/screens/settings_page.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:google_fonts/google_fonts.dart';
-// Make sure this path is correct
 
-import 'dart:io'; // Required for File
-import 'package:image_picker/image_picker.dart'; // Required for ImagePicker
+import 'package:momento/screens/add_new_entry.dart';
+import 'package:momento/models/diary_entry.dart'; // Import DiaryEntry model
 
-// ... (Your DiaryContentPage and SettingsPage should be above this)
+import '../widgets/liquid_background.dart';
 
-// --- START OF COMPLETE UPDATED AddEntryPage CLASS ---
-class AddEntryPage extends StatefulWidget {
-  const AddEntryPage({super.key});
+class DiaryListScreen extends StatefulWidget {
+  const DiaryListScreen({super.key});
 
   @override
-  State<AddEntryPage> createState() => _AddEntryPageState();
+  State<DiaryListScreen> createState() => DiaryListScreenState();
 }
 
-class _AddEntryPageState extends State<AddEntryPage> {
-  // --- All State Variables Declared Here ---
-  final _formKey = GlobalKey<FormState>();
-  final TextEditingController _contentController = TextEditingController();
-  bool _isLoading = false;
-  File? _selectedImage; // <--- This is the variable causing the error if misplaced
-  final ImagePicker _picker = ImagePicker(); // ImagePicker instance
+class DiaryContentPage extends StatefulWidget {
+  const DiaryContentPage({super.key});
 
   @override
-  void dispose() {
-    _contentController.dispose();
-    super.dispose();
+  State<DiaryContentPage> createState() => _DiaryContentPageState();
+}
+
+class _DiaryContentPageState extends State<DiaryContentPage> {
+  late final Stream<List<Map<String, dynamic>>> _diaryEntriesStream;
+  List<DiaryEntry> _currentEntries = []; // To hold and modify local list
+
+  @override
+  void initState() {
+    super.initState();
+    _diaryEntriesStream = Supabase.instance.client
+        .from('new_diary')
+        .stream(primaryKey: ['id'])
+        .order('created_at', ascending: false);
+
+    // Listen to the stream and update _currentEntries
+    _diaryEntriesStream.listen((data) {
+      setState(() {
+        _currentEntries = data.map((map) => DiaryEntry.fromMap(map)).toList();
+      });
+    });
   }
 
-  // --- Image Picking Methods ---
-  Future<void> _pickImage() async {
-    showModalBottomSheet(
-      context: context,
-      builder: (BuildContext context) {
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              ListTile(
-                leading: const Icon(Icons.photo_library),
-                title: const Text('Pick from Gallery'),
-                onTap: () {
-                  Navigator.pop(context); // Close the bottom sheet
-                  _getImage(ImageSource.gallery);
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.camera_alt),
-                title: const Text('Take a Photo'),
-                onTap: () {
-                  Navigator.pop(context); // Close the bottom sheet
-                  _getImage(ImageSource.camera);
-                },
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Future<void> _getImage(ImageSource source) async {
+  Future<void> _deleteEntryPermanently(String entryId) async {
     try {
-      final XFile? pickedFile = await _picker.pickImage(source: source);
-      if (pickedFile != null) {
-        setState(() {
-          _selectedImage = File(pickedFile.path);
-        });
+      await Supabase.instance.client.from('new_diary').delete().eq('id', entryId);
+      if (mounted) {
+        // No need for a snackbar here, as the dismissible/undo flow handles feedback
+        debugPrint('Entry $entryId permanently deleted from Supabase.');
       }
     } catch (e) {
-      debugPrint("Error picking image: $e");
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to pick image: ${e.toString()}')),
+          SnackBar(content: Text('Failed to delete entry: ${e.toString()}')),
         );
       }
+      debugPrint('Error permanently deleting entry $entryId: $e');
     }
   }
 
-  // --- Image Upload Method ---
-  Future<String?> _uploadImage() async {
-    if (_selectedImage == null) {
-      return null; // No image selected
-    }
+  void _onDismissed(int index, DismissDirection direction) {
+    final DiaryEntry dismissedEntry = _currentEntries[index];
+    final int dismissedIndex = index; // Store original index
 
-    final String userId = Supabase.instance.client.auth.currentUser!.id;
-    final String fileName = '$userId/${DateTime.now().microsecondsSinceEpoch}.png'; // Unique file path
-
-    try {
-      // Ensure 'diary-images' is your correct Supabase Storage bucket name
-      final String publicUrl = await Supabase.instance.client.storage
-          .from('diary-images')
-          .upload(fileName, _selectedImage!,
-              fileOptions: const FileOptions(
-                cacheControl: '3600', // Cache for 1 hour
-                upsert: false, // Don't overwrite if file exists
-              ));
-      return publicUrl;
-    } catch (e) {
-      debugPrint('Error uploading image: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to upload image: ${e.toString()}')),
-        );
-      }
-      return null; // Return null on error
-    }
-  }
-
-  // --- Add Diary Entry Method ---
-  Future<void> _addDiaryEntry() async {
-    if (!_formKey.currentState!.validate()) {
-      return;
-    }
-
+    // Optimistically remove from the local list
     setState(() {
-      _isLoading = true;
+      _currentEntries.removeAt(dismissedIndex);
     });
 
-    final User? currentUser = Supabase.instance.client.auth.currentUser;
-
-    if (currentUser == null) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('You must be logged in to add an entry.')),
-        );
+    ScaffoldMessenger.of(context).removeCurrentSnackBar(); // Remove any previous snackbar
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('"${dismissedEntry.content.length > 20 ? dismissedEntry.content.substring(0, 20) + '...' : dismissedEntry.content}" deleted.'),
+        duration: const Duration(seconds: 5), // SnackBar visible for 5 seconds
+        action: SnackBarAction(
+          label: 'Undo',
+          textColor: Colors.blueAccent, // Customize undo button color
+          onPressed: () {
+            // Re-insert the item back into the list at its original position
+            setState(() {
+              _currentEntries.insert(dismissedIndex, dismissedEntry);
+            });
+            ScaffoldMessenger.of(context).hideCurrentSnackBar(); // Hide the undo snackbar
+          },
+        ),
+      ),
+    ).closed.then((reason) {
+      // This callback is called when the SnackBar is closed (either by user, timeout, or action)
+      if (reason != SnackBarClosedReason.action) {
+        // If the snackbar was not dismissed by the "Undo" action,
+        // then permanently delete the entry from Supabase.
+        _deleteEntryPermanently(dismissedEntry.id);
       }
-      setState(() { _isLoading = false; });
-      return;
-    }
-
-    String? imageUrl;
-    if (_selectedImage != null) {
-      imageUrl = await _uploadImage(); // Upload image first
-      if (imageUrl == null) {
-        setState(() { _isLoading = false; });
-        return; // Stop if image upload failed
-      }
-    }
-
-    try {
-      // Ensure 'new_diary' is your correct Supabase database table name
-      await Supabase.instance.client.from('new_diary').insert({
-        'content': _contentController.text.trim(),
-        'user_id': currentUser.id,
-        'image_url': imageUrl, // Include the image URL here
-      });
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Diary entry added successfully!')),
-        );
-        _contentController.clear();
-        setState(() {
-          _selectedImage = null; // Clear selected image after successful submission
-        });
-      }
-    } catch (e) {
-      debugPrint('Error adding diary entry: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to add entry: ${e.toString()}')),
-        );
-      }
-    } finally {
-      setState(() {
-        _isLoading = false;
-      });
-    }
+    });
   }
 
-  // --- Build Method for UI ---
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(20.0),
-      child: Form(
-        key: _formKey,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            Text(
-              'Add New Diary Entry',
-              textAlign: TextAlign.center,
-              style: GoogleFonts.roboto(
-                fontSize: 28,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
+    return LiquidBackground( // LiquidBackground covers the whole content area
+      child: StreamBuilder<List<Map<String, dynamic>>>(
+        stream: _diaryEntriesStream,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator(color: Colors.white));
+          }
+          if (snapshot.hasError) {
+            return Center(
+              child: Text(
+                'Error loading entries: ${snapshot.error}',
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.red, fontSize: 16),
               ),
-            ),
-            const SizedBox(height: 30),
-            TextFormField(
-              controller: _contentController,
-              maxLines: 8,
-              minLines: 3,
-              decoration: InputDecoration(
-                labelText: 'Your thoughts...',
-                labelStyle: GoogleFonts.roboto(color: Colors.white70),
-                alignLabelWithHint: true,
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  borderSide: const BorderSide(color: Colors.white54),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  borderSide: const BorderSide(color: Colors.white),
-                ),
-                // ignore: deprecated_member_use
-                fillColor: Colors.white.withOpacity(0.1),
-                filled: true,
-              ),
-              style: GoogleFonts.roboto(color: Colors.white, fontSize: 16),
-              validator: (value) {
-                if (value == null || value.trim().isEmpty) {
-                  return 'Entry cannot be empty.';
-                }
-                return null;
-              },
-            ),
-            const SizedBox(height: 20),
-
-            // --- Image Picking Button ---
-            ElevatedButton.icon(
-              icon: const Icon(Icons.image, color: Colors.white),
-              label: Text(
-                _selectedImage == null ? 'Pick Image' : 'Change Image',
-                style: GoogleFonts.roboto(fontSize: 16, color: Colors.white),
-              ),
-              onPressed: _pickImage, // Calls the method to show bottom sheet
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 15),
-                // ignore: deprecated_member_use
-                backgroundColor: Colors.white.withOpacity(0.2),
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  side: const BorderSide(color: Colors.white70),
-                ),
-              ),
-            ),
-            const SizedBox(height: 10),
-
-            // --- Image Preview ---
-            if (_selectedImage != null)
-              Container(
-                margin: const EdgeInsets.only(bottom: 20),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: Colors.white54),
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(10),
-                  child: Image.file(
-                    _selectedImage!,
-                    height: 200,
-                    fit: BoxFit.cover,
+            );
+          }
+          if (!snapshot.hasData || snapshot.data!.isEmpty) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    'No entries yet. Start writing!',
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.roboto(fontSize: 24, color: Colors.white),
                   ),
-                ),
-              ),
-
-            _isLoading
-                ? const Center(child: CircularProgressIndicator(color: Colors.white))
-                : ElevatedButton(
-                    onPressed: _addDiaryEntry,
+                  const SizedBox(height: 20),
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (context) => const AddEntryPage()),
+                      );
+                    },
+                    icon: const Icon(Icons.add_box, color: Colors.white),
+                    label: Text(
+                      'Add Your First Entry',
+                      style: GoogleFonts.roboto(fontSize: 16, color: Colors.white),
+                    ),
                     style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 15),
-                      // ignore: deprecated_member_use
-                      backgroundColor: Colors.white.withOpacity(0.3),
+                      backgroundColor: Colors.white.withOpacity(0.2),
                       foregroundColor: Colors.white,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(10),
                         side: const BorderSide(color: Colors.white70),
                       ),
-                      textStyle: GoogleFonts.roboto(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }
+
+          // Use _currentEntries directly which is updated by the stream listener
+          if (_currentEntries.isEmpty) {
+             return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    'No entries yet. Start writing!',
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.roboto(fontSize: 24, color: Colors.white),
+                  ),
+                  const SizedBox(height: 20),
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (context) => const AddEntryPage()),
+                      );
+                    },
+                    icon: const Icon(Icons.add_box, color: Colors.white),
+                    label: Text(
+                      'Add Your First Entry',
+                      style: GoogleFonts.roboto(fontSize: 16, color: Colors.white),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.white.withOpacity(0.2),
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        side: const BorderSide(color: Colors.white70),
                       ),
                     ),
-                    child: const Text('Save Entry'),
                   ),
-          ],
-        ),
+                ],
+              ),
+            );
+          }
+
+
+          return ListView.builder(
+            padding: const EdgeInsets.all(16.0),
+            itemCount: _currentEntries.length,
+            itemBuilder: (context, index) {
+              final DiaryEntry entry = _currentEntries[index];
+
+              return Dismissible(
+                key: ValueKey<String>(entry.id), // Unique key for each Dismissible
+                direction: DismissDirection.endToStart, // Only allow swipe from right to left
+                background: Container(
+                  alignment: Alignment.centerRight,
+                  padding: const EdgeInsets.symmetric(horizontal: 20.0),
+                  color: Colors.red, // Background color when swiping
+                  child: const Icon(Icons.delete, color: Colors.white),
+                ),
+                onDismissed: (direction) => _onDismissed(index, direction),
+                child: Card(
+                  color: Colors.white.withOpacity(0.1),
+                  margin: const EdgeInsets.symmetric(vertical: 8.0),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    side: const BorderSide(color: Colors.white30),
+                  ),
+                  child: ListTile(
+                    contentPadding: const EdgeInsets.all(16.0),
+                    title: Text(
+                      entry.content.length > 50 ? '${entry.content.substring(0, 50)}...' : entry.content,
+                      style: GoogleFonts.roboto(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (entry.imageUrl != null && entry.imageUrl!.isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: Image.network(
+                              entry.imageUrl!,
+                              height: 100,
+                              width: double.infinity,
+                              fit: BoxFit.cover,
+                              errorBuilder: (context, error, stackTrace) => Container(
+                                height: 100,
+                                color: Colors.grey.withOpacity(0.2),
+                                child: const Center(
+                                  child: Icon(Icons.broken_image, color: Colors.white70),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 8),
+                        Text(
+                          '${entry.date.day}/${entry.date.month}/${entry.date.year} ${entry.date.hour}:${entry.date.minute.toString().padLeft(2, '0')}',
+                          style: GoogleFonts.roboto(
+                            fontSize: 14,
+                            color: Colors.white70,
+                          ),
+                        ),
+                      ],
+                    ),
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (context) => DiaryEntryDetailsPage(
+                            entryId: entry.id, // <--- NEW: Pass the entry ID
+                            initialContent: entry.content, // <--- CHANGED: Renamed to initialContent
+                            initialImageUrl: entry.imageUrl,
+                            initialCreatedAt: entry.date, // <--- CHANGED: Renamed to initialCreatedAt (if that's what you decided, check your DiaryEntryDetailsPage)
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              );
+            },
+          );
+        },
       ),
     );
   }
 }
-// --- END OF COMPLETE UPDATED AddEntryPage CLASS ---
+
+class DiaryListScreenState extends State<DiaryListScreen> {
+  int _selectedIndex = 0;
+
+  static final List<Widget> _widgetOptions = <Widget>[
+    Navigator(
+      key: const PageStorageKey('DiaryTabNavigator'),
+      onGenerateRoute: (settings) {
+        return MaterialPageRoute(
+          settings: settings,
+          builder: (context) => const DiaryContentPage(),
+        );
+      },
+    ),
+    Navigator(
+      key: const PageStorageKey('AddTabNavigator'),
+      onGenerateRoute: (settings) {
+        return MaterialPageRoute(
+          settings: settings,
+          builder: (context) => const AddEntryPage(),
+        );
+      },
+    ),
+    Navigator(
+      key: const PageStorageKey('SettingsTabNavigator'),
+      onGenerateRoute: (settings) {
+        return MaterialPageRoute(
+          settings: settings,
+          builder: (context) => const SettingsPage(),
+        );
+      },
+    ),
+  ];
+
+  void _onItemTapped(int index) {
+    setState(() {
+      _selectedIndex = index;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      extendBodyBehindAppBar: true,
+      appBar: AppBar(
+        title: const Text('momento', style: TextStyle(color: Colors.white)),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout, color: Colors.white),
+            onPressed: () {
+              Supabase.instance.client.auth.signOut();
+              // After logout, navigate to the authentication wrapper
+              Navigator.of(context).pushNamedAndRemoveUntil('/wrapper', (route) => false);
+            },
+            tooltip: 'Logout',
+          ),
+        ],
+      ),
+      body: LiquidBackground(
+        child: Center(
+          child: _widgetOptions.elementAt(_selectedIndex),
+        ),
+      ),
+      bottomNavigationBar: Stack(
+        children: [
+          Container(
+            height: 80,
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  Color(0xAA1A2A6C),
+                  Color(0xAA7B0000),
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+            ),
+          ),
+          BottomNavigationBar(
+            items: const <BottomNavigationBarItem>[
+              BottomNavigationBarItem(
+                icon: Icon(Icons.book),
+                label: 'Diary',
+              ),
+              BottomNavigationBarItem(
+                icon: Icon(Icons.add_box),
+                label: 'Add',
+              ),
+              BottomNavigationBarItem(
+                icon: Icon(Icons.settings),
+                label: 'Settings',
+              ),
+            ],
+            currentIndex: _selectedIndex,
+            selectedItemColor: Colors.white,
+            unselectedItemColor: Colors.white70,
+            onTap: _onItemTapped,
+            backgroundColor: Colors.transparent,
+            elevation: 0,
+            type: BottomNavigationBarType.fixed,
+          ),
+        ],
+      ),
+    );
+  }
+}

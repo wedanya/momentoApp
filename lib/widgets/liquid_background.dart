@@ -1,81 +1,128 @@
 import 'package:flutter/material.dart';
+import 'dart:math' as math; // For sin and cos
 
 class LiquidBackground extends StatefulWidget {
-  final Widget child;
+  final Widget child; // The content to display over the background
 
-  const LiquidBackground({super.key, required this.child});
+  const LiquidBackground({
+    super.key,
+    required this.child,
+  });
 
   @override
   State<LiquidBackground> createState() => _LiquidBackgroundState();
 }
 
-// We need SingleTickerProviderStateMixin to provide a Ticker for AnimationController
-class _LiquidBackgroundState extends State<LiquidBackground> with SingleTickerProviderStateMixin {
-  late AnimationController _animationController;
-  late Animation<AlignmentGeometry> _animation;
+class _LiquidBackgroundState extends State<LiquidBackground>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  // Define colors for your liquid effect
+  final List<Color> _colors = [
+    Colors.purple.shade900.withOpacity(0.6),
+    Colors.blue.shade900.withOpacity(0.6),
+    Colors.deepPurple.shade900.withOpacity(0.6),
+  ];
 
   @override
   void initState() {
     super.initState();
-    _animationController = AnimationController(
-      vsync: this, // Provided by SingleTickerProviderStateMixin
-      duration: const Duration(seconds: 8), // Duration for one full animation cycle
-    )..repeat(reverse: true); // Repeat the animation back and forth
-
-    // Define the animation for the gradient's begin and end alignments
-    _animation = TweenSequence<AlignmentGeometry>([
-      TweenSequenceItem(
-        tween: Tween<AlignmentGeometry>(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        weight: 1, // Represents 1/3 of the animation duration for this segment
-      ),
-      TweenSequenceItem(
-        tween: Tween<AlignmentGeometry>(
-          begin: Alignment.bottomRight,
-          end: Alignment.topRight,
-        ),
-        weight: 1,
-      ),
-      TweenSequenceItem(
-        tween: Tween<AlignmentGeometry>(
-          begin: Alignment.topRight,
-          end: Alignment.topLeft,
-        ),
-        weight: 1,
-      ),
-    ]).animate(_animationController);
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 15), // Duration for one full animation cycle
+    )..repeat(); // Repeat the animation indefinitely
   }
 
   @override
   void dispose() {
-    _animationController.dispose(); // Dispose the controller to prevent memory leaks
+    _controller.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: _animation,
+      animation: _controller,
       builder: (context, child) {
-        return Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: _animation.value, // Animated begin alignment
-              end: -_animation.value, // Animated end alignment (opposite of begin)
-              colors: const [
-                Color.fromARGB(255, 70, 130, 180), // Deeper blue
-                Color.fromARGB(255, 100, 150, 200), // Medium blue
-                // Add more colors if you want a more complex gradient
-                // const Color.fromARGB(255, 120, 170, 220), // Lighter blue
-              ],
+        return Stack(
+          children: [
+            // This container will fill the available space and draw the background
+            Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    _colors[0],
+                    _colors[1],
+                    _colors[2],
+                  ],
+                ),
+              ),
+              child: CustomPaint(
+                painter: LiquidPainter(_controller.value),
+                child: Container(), // A dummy child to ensure CustomPaint takes space
+              ),
             ),
-          ),
-          child: widget.child, // Your actual content (AuthScreen, DiaryListScreen) will be placed here
+            // The actual content of the page is placed on top
+            Positioned.fill(
+              child: widget.child,
+            ),
+          ],
         );
       },
-      child: widget.child, // This 'child' is passed to the builder as its 'child' argument
+      child: widget.child, // Optimisation: child is built once
     );
+  }
+}
+
+class LiquidPainter extends CustomPainter {
+  final double animationValue;
+
+  LiquidPainter(this.animationValue);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.white.withOpacity(0.1) // Color of the "liquid" shapes
+      ..style = PaintingStyle.fill;
+
+    // A simple way to create dynamic shapes:
+    // We'll create a few undulating "waves" or blobs
+    final path = Path();
+    path.moveTo(0, size.height * 0.8 * (1 + 0.1 * math.sin(animationValue * 2 * math.pi)));
+
+    for (double i = 0; i <= size.width; i += size.width / 50) {
+      path.lineTo(
+        i,
+        size.height * 0.8 + 
+            size.height * 0.1 * math.sin((i / size.width * 2 * math.pi) + animationValue * 2 * math.pi) +
+            size.height * 0.05 * math.cos((i / size.width * 3 * math.pi) + animationValue * 2 * math.pi * 0.5) // Second wave for more complexity
+      );
+    }
+    path.lineTo(size.width, size.height);
+    path.lineTo(0, size.height);
+    path.close();
+    canvas.drawPath(path, paint);
+
+    // Add another layer for more depth
+    final path2 = Path();
+    path2.moveTo(0, size.height * 0.7 * (1 + 0.1 * math.cos(animationValue * 2 * math.pi * 0.7)));
+    for (double i = 0; i <= size.width; i += size.width / 50) {
+      path2.lineTo(
+        i,
+        size.height * 0.7 + 
+            size.height * 0.08 * math.cos((i / size.width * 2.5 * math.pi) + animationValue * 2 * math.pi * 1.2) +
+            size.height * 0.04 * math.sin((i / size.width * 3.5 * math.pi) + animationValue * 2 * math.pi * 0.8)
+      );
+    }
+    path2.lineTo(size.width, size.height);
+    path2.lineTo(0, size.height);
+    path2.close();
+    canvas.drawPath(path2, paint..color = Colors.white.withOpacity(0.07)); // Slightly different color/opacity
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) {
+    return (oldDelegate as LiquidPainter).animationValue != animationValue;
   }
 }

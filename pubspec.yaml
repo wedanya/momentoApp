@@ -12,10 +12,13 @@ dependencies:
     sdk: flutter
   image_picker: ^1.1.2
   intl: ^0.18.0
-  uuid: ^4.3.0 # Keeping this, assuming potential future use or specific client-side ID generation
+  uuid: ^4.4.0 # Keeping this, assuming potential future use or specific client-side ID generation
   supabase_flutter: ^2.5.2
   google_fonts: ^6.2.1
   cupertino_icons: ^1.0.6
+  shared_preferences: ^2.2.3 # For local settings storage
+  package_info_plus: ^8.0.0 # For getting app version
+  url_launcher: ^6.3.0 # For opening URLs (privacy policy, terms)
 
 dev_dependencies:
   flutter_test:

@@ -36,10 +36,12 @@ class MyApp extends StatelessWidget {
       ),
       home: const Wrapper(), // The Wrapper widget will handle authentication routing
       // You can define named routes here if you plan to use them for navigation
-      // routes: {
+      routes: {
       //   '/home': (context) => const DiaryListScreen(), // Define if you navigate directly
       //   '/auth': (context) => const AuthScreen(), // Define if you navigate directly
-      // },
+      
+      '/wrapper': (context) => const Wrapper(),
+      },
       debugShowCheckedModeBanner: false, // Set to false in production
     );
   }

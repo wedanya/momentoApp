@@ -50,18 +50,19 @@ class _EditNewEntryState extends State<EditNewEntry> {
   }
 
   Future<void> _pickImage() async {
-    final XFile? pickedFile = await _picker.pickImage(source: ImageSource.gallery);
+    final XFile? picked = await _picker.pickImage(source: ImageSource.gallery);
+    if (picked == null) return;
 
-    if (pickedFile != null) {
-      // Read bytes for preview (works on all platforms, essential for web)
-      final bytes = await pickedFile.readAsBytes();
-      setState(() {
-        _imageFile = File(pickedFile.path); // Keep this to pass to upload service
-        _newPickedImageBytes = bytes; // ⬅️ Set bytes for Image.memory preview
-        _isImageChanged = true;
-        _currentImageUrl = null; // Clear old URL visually if new image is picked
-      });
+    if (kIsWeb) {
+      _newPickedImageBytes = await picked.readAsBytes();
+      _imageFile = null; // ✅ don’t use File on web
+    } else {
+      _imageFile = File(picked.path);
+      _newPickedImageBytes = null;
     }
+    _isImageChanged = true;
+    _currentImageUrl = null;
+    setState(() {});
   }
 
   void _removeImage() {

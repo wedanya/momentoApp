@@ -4,7 +4,7 @@ import '../models/diary_entry.dart'; // Ensure your DiaryEntry model is correct
 
 class DiaryServiceSupabase {
   final SupabaseClient _supabase = Supabase.instance.client;
-  static const String _tableName = 'diary_entries'; // Your Supabase table name for diary entries
+  static const String _tableName = 'new_diary'; // Your Supabase table name for diary entries
 
   // Helper to get the current authenticated user's ID
   String? get currentUserId => _supabase.auth.currentUser?.id;

@@ -1,76 +1,38 @@
-import 'dart:io'; // Required for File
-import 'dart:typed_data'; // Required for Uint8List (web)
+// lib/screens/add_new_entry.dart
+
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart'; // Required for ImagePicker
-import 'package:supabase_flutter/supabase_flutter.dart'; // To get current user ID
-import 'package:google_fonts/google_fonts.dart'; // For consistent fonts
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:flutter/foundation.dart'; // Import for kIsWeb
 
-import '../../models/diary_entry.dart'; // Adjust path if necessary
-import '../services/diary_service_supabase.dart'; // Adjust path if necessary
-import '../services/image_storage_service.dart'; // Adjust path if necessary
+import 'dart:io'; // Required for File
+import 'package:image_picker/image_picker.dart';
+import 'package:flutter/services.dart'; // Required for Uint8List
 
-class AddEntryScreen extends StatefulWidget {
-  const AddEntryScreen({super.key});
+import '../widgets/liquid_background.dart';
+import '../models/diary_entry.dart'; // Import the DiaryEntry model
+
+class AddEntryPage extends StatefulWidget {
+  const AddEntryPage({super.key});
 
   @override
-  State<AddEntryScreen> createState() => _AddEntryScreenState();
+  State<AddEntryPage> createState() => _AddEntryPageState();
 }
 
-class _AddEntryScreenState extends State<AddEntryScreen> {
-  final _titleController = TextEditingController();
-  final _contentController = TextEditingController();
+class _AddEntryPageState extends State<AddEntryPage> {
   final _formKey = GlobalKey<FormState>();
-
-  final DiaryServiceSupabase _diaryService = DiaryServiceSupabase();
-  final ImageStorageService _imageStorageService = ImageStorageService();
-  final ImagePicker _picker = ImagePicker();
-
-  File? _imageFile; // To store the picked image file (for mobile platforms)
-  Uint8List? _imageBytes; // To store image bytes (for web and other non-File platforms)
-  bool _isLoading = false; // For showing loading indicator
+  final TextEditingController _contentController = TextEditingController();
+  bool _isLoading = false;
+  Uint8List? _selectedImageBytes; // For web preview and web upload
+  File? _selectedImageFile; // For mobile/desktop file operations and upload
+  final ImagePicker _picker = ImagePicker(); // ImagePicker instance
 
   @override
   void dispose() {
-    _titleController.dispose();
     _contentController.dispose();
     super.dispose();
   }
 
-  // Helper method to pick image from a given source (gallery or camera)
-  // In _AddEntryScreenState
-Future<void> _getImage(ImageSource source) async {
-  try {
-    final XFile? pickedFile = await _picker.pickImage(source: source);
-    if (pickedFile != null) {
-      // Check if running on mobile (Android/iOS) where File API is available
-      // ignore: use_build_context_synchronously
-      if (Theme.of(context).platform == TargetPlatform.android ||
-          // ignore: use_build_context_synchronously
-          Theme.of(context).platform == TargetPlatform.iOS) {
-        setState(() {
-          _imageFile = File(pickedFile.path); // Use File for mobile
-          _imageBytes = null; // Clear web bytes if previously set
-        });
-      } else {
-        // For web, desktop, and other platforms where File is not directly supported
-        final bytes = await pickedFile.readAsBytes();
-        setState(() {
-          _imageBytes = bytes; // Use bytes for web
-          _imageFile = null; // Clear mobile file if previously set
-        });
-      }
-    }
-  } catch (e) {
-    debugPrint("Error picking image: $e");
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to pick image: ${e.toString()}')),
-      );
-    }
-  }
-}
-
-  // Function to present choice between gallery and camera
   Future<void> _pickImage() async {
     showModalBottomSheet(
       context: context,
@@ -102,261 +64,267 @@ Future<void> _getImage(ImageSource source) async {
     );
   }
 
-  // Function to remove the selected image
-  void _removeImage() {
-    setState(() {
-      _imageFile = null;
-      _imageBytes = null; // Clear bytes if set
-    });
+  Future<void> _getImage(ImageSource source) async {
+    try {
+      final XFile? pickedFile = await _picker.pickImage(source: source);
+      if (pickedFile != null) {
+        setState(() {
+          _selectedImageBytes = null; // Clear previous bytes
+          _selectedImageFile = null; // Clear previous file
+
+          if (kIsWeb) {
+            pickedFile.readAsBytes().then((bytes) {
+              setState(() {
+                _selectedImageBytes = bytes;
+              });
+            });
+          } else {
+            _selectedImageFile = File(pickedFile.path);
+          }
+        });
+      }
+    } catch (e) {
+      debugPrint("Error picking image: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to pick image: ${e.toString()}')),
+        );
+      }
+    }
   }
 
-  Future<void> _saveEntry() async {
+  Future<String?> _uploadImage() async {
+    if (_selectedImageFile == null && _selectedImageBytes == null) {
+      return null; // No image selected
+    }
+
+    final String userId = Supabase.instance.client.auth.currentUser!.id;
+    final String fileName = '$userId/${DateTime.now().microsecondsSinceEpoch}.png';
+
+    try {
+      if (_selectedImageFile != null) { // If running on mobile/desktop (File is available)
+        final String publicUrl = await Supabase.instance.client.storage
+            .from('images') // Corrected bucket name
+            .upload(fileName, _selectedImageFile!,
+                fileOptions: const FileOptions(
+                  cacheControl: '3600',
+                  upsert: false,
+                ));
+        return Supabase.instance.client.storage.from('images').getPublicUrl(fileName); // Get public URL
+      } else if (_selectedImageBytes != null) { // If running on web (bytes are available)
+        final String publicUrl = await Supabase.instance.client.storage
+            .from('images') // Corrected bucket name
+            .uploadBinary(fileName, _selectedImageBytes!,
+                fileOptions: const FileOptions(
+                  cacheControl: '3600',
+                  upsert: false,
+                ));
+        return Supabase.instance.client.storage.from('images').getPublicUrl(fileName); // Get public URL
+      }
+      return null;
+    } catch (e) {
+      debugPrint('Error uploading image: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to upload image: ${e.toString()}')),
+        );
+      }
+      return null;
+    }
+  }
+
+  Future<void> _addDiaryEntry() async {
     if (!_formKey.currentState!.validate()) {
       return;
     }
 
     setState(() {
-      _isLoading = true; // Start loading
+      _isLoading = true;
     });
 
-    final String? currentUserId = Supabase.instance.client.auth.currentUser?.id;
-    if (currentUserId == null) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Error: User not authenticated. Cannot save entry.')),
-        );
-      }
-      setState(() { _isLoading = false; }); // Stop loading
-      return;
-    }
+    final User? currentUser = Supabase.instance.client.auth.currentUser;
 
-    String? imageUrl;
-    if (_imageFile != null) {
-      try {
-        // Use ImageStorageService for actual upload
-        imageUrl = await _imageStorageService.uploadDiaryImage(_imageFile!, currentUserId);
-      } catch (e) {
-        debugPrint('Error uploading image: $e');
-        if (context.mounted) {
-          // ignore: use_build_context_synchronously
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Failed to upload image: ${e.toString()}')),
-          );
-        }
-        setState(() { _isLoading = false; }); // Stop loading
-        return; // Stop saving if image upload fails
-      }
-    }
-    else if (_imageBytes != null) { // For web (Uint8List bytes)
-    try {
-      // This method will be added/modified in ImageStorageService
-      imageUrl = await _imageStorageService.uploadDiaryImageBytes(_imageBytes!, currentUserId);
-    } catch (e) {
-      debugPrint('Error uploading image (Bytes): $e');
+    if (currentUser == null) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to upload image (web): ${e.toString()}')),
+          const SnackBar(content: Text('You must be logged in to add an entry.')),
         );
       }
       setState(() { _isLoading = false; });
       return;
     }
-  }
 
-    final newEntry = DiaryEntry(
-      id: null, // Supabase will generate the ID
-      title: _titleController.text.trim().isEmpty ? null : _titleController.text.trim(), // Optional title
-      content: _contentController.text.trim(),
-      date: DateTime.now().toIso8601String(), // Use current time
-      imageUrl: imageUrl, // Pass the uploaded image URL
-    );
+    String? imageUrl;
+    if (_selectedImageFile != null || _selectedImageBytes != null) {
+      imageUrl = await _uploadImage();
+      if (imageUrl == null) {
+        setState(() { _isLoading = false; });
+        return;
+      }
+    }
 
     try {
-      await _diaryService.addEntry(newEntry); // Use DiaryServiceSupabase
-      if (context.mounted) {
-        // ignore: use_build_context_synchronously
+      // You were creating a DiaryEntry object that required 'date'.
+      // Although Supabase handles 'created_at', if you use DiaryEntry locally,
+      // it needs all its required parameters.
+      // We will now create the map for Supabase directly,
+      // as the DiaryEntry model is mostly for fetching/displaying.
+      // If you intended to use the DiaryEntry object for more complex local logic,
+      // you would instantiate it like:
+      // final newEntry = DiaryEntry(
+      //   id: '', // Supabase generates this, so can be empty for new
+      //   content: _contentController.text.trim(),
+      //   imageUrl: imageUrl,
+      //   userId: currentUser.id,
+      //   date: DateTime.now(), // Provided as per error
+      // );
+
+
+      // Ensure 'new_diary' is your correct Supabase database table name
+      await Supabase.instance.client.from('new_diary').insert({
+        'content': _contentController.text.trim(),
+        'user_id': currentUser.id,
+        'image_url': imageUrl, // Include the image URL here (can be null if no image)
+        // 'created_at' is typically handled by a default value in your Supabase table schema
+      });
+
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Diary entry saved successfully!')),
+          const SnackBar(content: Text('Diary entry added successfully!')),
         );
-        // ignore: use_build_context_synchronously
-        Navigator.pop(context, true); // Pop with true to indicate success and reload list
+        _contentController.clear();
+        setState(() {
+          _selectedImageBytes = null;
+          _selectedImageFile = null;
+        });
       }
     } catch (e) {
-      debugPrint('Error saving entry to Supabase: $e');
-      if (context.mounted) {
-        // ignore: use_build_context_synchronously
+      debugPrint('Error adding diary entry: $e');
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to save entry: ${e.toString()}')),
+          SnackBar(content: Text('Failed to add entry: ${e.toString()}')),
         );
       }
     } finally {
       setState(() {
-        _isLoading = false; // Stop loading regardless of outcome
+        _isLoading = false;
       });
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          'Add New Entry',
-          style: GoogleFonts.roboto(fontWeight: FontWeight.bold),
-        ),
-        backgroundColor: Colors.blueGrey[800], // Darker app bar
-        foregroundColor: Colors.white,
-        actions: [
-          _isLoading
-              ? const Padding(
-                  padding: EdgeInsets.all(8.0),
-                  child: CircularProgressIndicator(color: Colors.white),
-                )
-              : IconButton(
-                  icon: const Icon(Icons.save),
-                  onPressed: _saveEntry,
-                ),
-        ],
-      ),
-      // Apply a consistent background, perhaps similar to your DiaryListScreen
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              Color(0xFF263238), // Dark Blue Grey
-              Color(0xFF37474F), // Lighter Blue Grey
-            ],
-          ),
-        ),
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(16.0),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: <Widget>[
-                // Image selection section
-                GestureDetector(
-                  onTap: _pickImage,
-                  child: Container(
-                    height: 200,
-                    width: double.infinity,
-                    decoration: BoxDecoration(
-                      // ignore: deprecated_member_use
-                      color: Colors.white.withOpacity(0.1), // Semi-transparent background
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: Colors.white54),
-                    ),
-                    alignment: Alignment.center,
-                    child: (_imageFile != null || _imageBytes != null)
-                        ? Stack(
-                            alignment: Alignment.topRight,
-                            children: [
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(9), // Slightly less than container
-                                child: _imageFile != null
-                    ? Image.file( // Use Image.file for mobile
-                        _imageFile!,
-                        fit: BoxFit.cover,
-                        width: double.infinity,
-                        height: double.infinity,
-                      )
-                    : Image.memory( // Use Image.memory for web
-                        _imageBytes!,
-                        fit: BoxFit.cover,
-                        width: double.infinity,
-                        height: double.infinity,
-                      ),
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.close, color: Colors.red, size: 30),
-                                onPressed: _removeImage,
-                                splashRadius: 20,
-                              ),
-                            ],
-                          )
-                        : Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              // ignore: prefer_const_constructors
-                              Icon(Icons.add_photo_alternate, size: 50, color: Colors.white70),
-                              const SizedBox(height: 8),
-                              Text('Add Image (Optional)', style: GoogleFonts.roboto(color: Colors.white70)),
-                            ],
-                          ),
-                  ),
-                ),
-                const SizedBox(height: 20),
-                TextFormField(
-                  controller: _titleController,
-                  decoration: InputDecoration(
-                    labelText: 'Title (Optional)',
-                    labelStyle: GoogleFonts.roboto(color: Colors.white70),
-                    border: const OutlineInputBorder(),
-                    prefixIcon: const Icon(Icons.title, color: Colors.white70),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: const BorderSide(color: Colors.white54),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: const BorderSide(color: Colors.white),
-                    ),
-                    // ignore: deprecated_member_use
-                    fillColor: Colors.white.withOpacity(0.1),
-                    filled: true,
-                  ),
-                  style: GoogleFonts.roboto(color: Colors.white),
-                  maxLength: 100,
-                ),
-                const SizedBox(height: 20.0),
-                TextFormField(
-                  controller: _contentController,
-                  decoration: InputDecoration(
-                    labelText: 'Content',
-                    labelStyle: GoogleFonts.roboto(color: Colors.white70),
-                    alignLabelWithHint: true,
-                    border: const OutlineInputBorder(),
-                    prefixIcon: const Icon(Icons.edit_note, color: Colors.white70),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: const BorderSide(color: Colors.white54),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: const BorderSide(color: Colors.white),
-                    ),
-                    // ignore: deprecated_member_use
-                    fillColor: Colors.white.withOpacity(0.1),
-                    filled: true,
-                  ),
-                  style: GoogleFonts.roboto(color: Colors.white),
-                  maxLines: null,
-                  minLines: 5,
-                  keyboardType: TextInputType.multiline,
-                  validator: (value) => value!.isEmpty ? 'Content cannot be empty' : null,
-                ),
-                const SizedBox(height: 20.0),
-                ElevatedButton(
-                  onPressed: _isLoading ? null : _saveEntry, // Disable button while loading
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 15),
-                    // ignore: deprecated_member_use
-                    backgroundColor: Colors.white.withOpacity(0.3),
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      side: const BorderSide(color: Colors.white70),
-                    ),
-                    textStyle: GoogleFonts.roboto(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                  child: const Text('Save Entry'),
-                ),
-              ],
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20.0),
+      child: Form(
+        key: _formKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            Text(
+              'Add New Diary Entry',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.roboto(
+                fontSize: 28,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
             ),
-          ),
+            const SizedBox(height: 30),
+            TextFormField(
+              controller: _contentController,
+              maxLines: 8,
+              minLines: 3,
+              decoration: InputDecoration(
+                labelText: 'Your thoughts...',
+                labelStyle: GoogleFonts.roboto(color: Colors.white70),
+                alignLabelWithHint: true,
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: const BorderSide(color: Colors.white54),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: const BorderSide(color: Colors.white),
+                ),
+                fillColor: Colors.white.withOpacity(0.1),
+                filled: true,
+              ),
+              style: GoogleFonts.roboto(color: Colors.white, fontSize: 16),
+              validator: (value) {
+                if (value == null || value.trim().isEmpty) {
+                  return 'Entry cannot be empty.';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: 20),
+
+            ElevatedButton.icon(
+              icon: const Icon(Icons.image, color: Colors.white),
+              label: Text(
+                (_selectedImageFile == null && _selectedImageBytes == null) ? 'Pick Image' : 'Change Image',
+                style: GoogleFonts.roboto(fontSize: 16, color: Colors.white),
+              ),
+              onPressed: _pickImage,
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 15),
+                backgroundColor: Colors.white.withOpacity(0.2),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  side: const BorderSide(color: Colors.white70),
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+
+            // --- Image Preview (Platform-aware) ---
+            if (_selectedImageFile != null || _selectedImageBytes != null)
+              Container(
+                margin: const EdgeInsets.only(bottom: 20),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.white54),
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: kIsWeb && _selectedImageBytes != null
+                      ? Image.memory(
+                          _selectedImageBytes!,
+                          height: 200,
+                          fit: BoxFit.cover,
+                        )
+                      : _selectedImageFile != null
+                          ? Image.file(
+                              _selectedImageFile!,
+                              height: 200,
+                              fit: BoxFit.cover,
+                            )
+                          : const SizedBox.shrink(),
+                ),
+              ),
+
+            _isLoading
+                ? const Center(child: CircularProgressIndicator(color: Colors.white))
+                : ElevatedButton(
+                    onPressed: _addDiaryEntry,
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 15),
+                      backgroundColor: Colors.white.withOpacity(0.3),
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        side: const BorderSide(color: Colors.white70),
+                      ),
+                      textStyle: GoogleFonts.roboto(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    child: const Text('Save Entry'),
+                  ),
+          ],
         ),
       ),
     );
